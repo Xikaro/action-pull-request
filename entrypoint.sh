@@ -30,6 +30,10 @@ DRAFT_VALUE=""
 CREATE_MISSING_LABELS_VALUE=""
 REPOSITORY_LABELS_JSON=""
 DEFAULT_CREATED_LABEL_COLOR="0366d6"
+AUTO_MERGE_VALUE=""
+AUTO_MERGE_METHOD_VALUE=""
+AUTO_MERGE_REQUIRE_APPROVAL_VALUE=""
+AUTO_MERGE_WAIT_CHECKS_VALUE=""
 
 REPLACE_TEMPLATE_SCRIPT="/scripts/replace-template-diff.sh"
 if [[ ! -x "${REPLACE_TEMPLATE_SCRIPT}" ]]; then
@@ -204,6 +208,10 @@ trim_whitespace() {
 : "${INPUT_MAX_BODY_BYTES:=65000}"
 : "${INPUT_MAX_DIFF_LINES:=0}"
 : "${INPUT_CREATE_MISSING_LABELS:=false}"
+: "${INPUT_AUTO_MERGE:=false}"
+: "${INPUT_AUTO_MERGE_METHOD:=squash}"
+: "${INPUT_AUTO_MERGE_REQUIRE_APPROVAL:=true}"
+: "${INPUT_AUTO_MERGE_WAIT_CHECKS:=true}"
 
 parse_csv_values() {
   local csv_value="$1"
@@ -370,6 +378,52 @@ add_pr_to_project_if_needed() {
   gh pr edit "${pr_number}" --repo "${TARGET_REPOSITORY}" --add-project "${project_title}" >/dev/null
 }
 
+pr_has_approval() {
+  local pr_number="$1"
+
+  local reviews_json=""
+  reviews_json="$(gh api "repos/${TARGET_REPOSITORY}/pulls/${pr_number}/reviews" --paginate)"
+
+  local approved_count
+  approved_count="$(jq '[.[] | select(.state == "APPROVED")] | length' <<< "${reviews_json}")"
+
+  if (( approved_count > 0 )); then
+    return 0
+  fi
+
+  return 1
+}
+
+auto_merge_pr() {
+  local pr_number="$1"
+
+  if [[ "${AUTO_MERGE_VALUE}" != "true" ]]; then
+    return 0
+  fi
+
+  echo -e "\n[INFO] Auto-merge is enabled for PR #${pr_number}"
+
+  if [[ "${AUTO_MERGE_REQUIRE_APPROVAL_VALUE}" == "true" ]]; then
+    if ! pr_has_approval "${pr_number}"; then
+      echo -e "\n[INFO] PR #${pr_number} has no approvals. Skipping auto-merge."
+      return 0
+    fi
+    echo -e "\n[INFO] PR #${pr_number} has at least one approval."
+  fi
+
+  local merge_args=("--${AUTO_MERGE_METHOD_VALUE}")
+
+  if [[ "${AUTO_MERGE_WAIT_CHECKS_VALUE}" == "true" ]]; then
+    merge_args+=(--auto)
+    echo -e "\n[INFO] Waiting for required status checks to pass before merging PR #${pr_number}..."
+  else
+    merge_args+=(--admin)
+    echo -e "\n[INFO] Merging PR #${pr_number} without waiting for status checks (--admin)..."
+  fi
+
+  gh pr merge "${pr_number}" --repo "${TARGET_REPOSITORY}" "${merge_args[@]}"
+}
+
 get_managed_comment_ids() {
   local pr_number="$1"
   local output_file="$2"
@@ -481,6 +535,10 @@ echo "  allow_no_diff: ${INPUT_ALLOW_NO_DIFF}"
 echo "  max_body_bytes: ${INPUT_MAX_BODY_BYTES}"
 echo "  max_diff_lines: ${INPUT_MAX_DIFF_LINES}"
 echo "  create_missing_labels: ${INPUT_CREATE_MISSING_LABELS}"
+echo "  auto_merge: ${INPUT_AUTO_MERGE}"
+echo "  auto_merge_method: ${INPUT_AUTO_MERGE_METHOD}"
+echo "  auto_merge_require_approval: ${INPUT_AUTO_MERGE_REQUIRE_APPROVAL}"
+echo "  auto_merge_wait_checks: ${INPUT_AUTO_MERGE_WAIT_CHECKS}"
 
 MAX_BODY_BYTES="${INPUT_MAX_BODY_BYTES:-65000}"
 MAX_DIFF_LINES="${INPUT_MAX_DIFF_LINES:-0}"
@@ -495,6 +553,22 @@ validate_boolean_input "${ALLOW_NO_DIFF_VALUE}" "allow_no_diff"
 validate_boolean_input "${GET_DIFF_VALUE}" "get_diff"
 validate_boolean_input "${DRAFT_VALUE}" "draft"
 validate_boolean_input "${CREATE_MISSING_LABELS_VALUE}" "create_missing_labels"
+
+AUTO_MERGE_VALUE="$(trim_whitespace "${INPUT_AUTO_MERGE}")"
+AUTO_MERGE_METHOD_VALUE="$(trim_whitespace "${INPUT_AUTO_MERGE_METHOD}")"
+AUTO_MERGE_REQUIRE_APPROVAL_VALUE="$(trim_whitespace "${INPUT_AUTO_MERGE_REQUIRE_APPROVAL}")"
+AUTO_MERGE_WAIT_CHECKS_VALUE="$(trim_whitespace "${INPUT_AUTO_MERGE_WAIT_CHECKS}")"
+validate_boolean_input "${AUTO_MERGE_VALUE}" "auto_merge"
+validate_boolean_input "${AUTO_MERGE_REQUIRE_APPROVAL_VALUE}" "auto_merge_require_approval"
+validate_boolean_input "${AUTO_MERGE_WAIT_CHECKS_VALUE}" "auto_merge_wait_checks"
+
+case "${AUTO_MERGE_METHOD_VALUE}" in
+  merge|squash|rebase) ;;
+  *)
+    echo -e "\n[ERROR] Input 'auto_merge_method' must be 'merge', 'squash', or 'rebase'. Got: ${AUTO_MERGE_METHOD_VALUE}" >&2
+    exit 1
+    ;;
+esac
 
 if (( MAX_BODY_BYTES < 2048 )); then
   echo -e "\n[ERROR] Input 'max_body_bytes' must be at least 2048. Got: ${MAX_BODY_BYTES}" >&2
@@ -784,6 +858,8 @@ else
     reconcile_managed_comments "${PR_NUMBER}" "0"
   fi
 fi
+
+auto_merge_pr "${PR_NUMBER}"
 
 # Finish
 {

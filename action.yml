@@ -89,6 +89,22 @@ inputs:
     description: Maximum lines per generated diff section (0 means unlimited)
     required: false
     default: "0"
+  auto_merge:
+    description: Whether to automatically merge the pull request after creation or update
+    required: false
+    default: "false"
+  auto_merge_method:
+    description: Merge method to use when auto_merge is enabled (merge, squash, or rebase)
+    required: false
+    default: squash
+  auto_merge_require_approval:
+    description: Whether to require at least one approval before auto-merging
+    required: false
+    default: "true"
+  auto_merge_wait_checks:
+    description: Whether to wait for all required status checks to pass before auto-merging
+    required: false
+    default: "true"
 outputs:
   url:
     description: Pull request URL
