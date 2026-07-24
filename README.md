@@ -14,6 +14,7 @@
 * Can replace any `old_string` inside a pull request template with a `new_string`. Or put commits' subjects in place of `old_string`
 * When `get_diff` is `true` will add list of commits in place of `<!-- Diff commits -->` and list of modified files in place of `<!-- Diff files -->` in a pull request template
 * When `allow_no_diff` is set to true will continue execution and create pull request even if both branches have no differences, e.g. having only a merge commit
+* When `auto_merge` is `true` will automatically merge the pull request after creation or update, with configurable merge method, approval requirements, and status check waiting
 * Supports both `amd64` and `arm64` architectures
 
 
@@ -79,6 +80,10 @@ This action supports three tag levels for flexible versioning:
         allow_no_diff: false
         max_body_bytes: 65000
         max_diff_lines: 0
+        auto_merge: false
+        auto_merge_method: squash
+        auto_merge_require_approval: true
+        auto_merge_wait_checks: true
 ```
 
 
@@ -107,6 +112,10 @@ This action supports three tag levels for flexible versioning:
 | `allow_no_diff`         | No       | `false`                       | Allows to continue on merge commits with no diffs                                                                       |
 | `max_body_bytes`        | No       | `65000`                       | Maximum PR body size in bytes before overflow is posted as managed PR comments                                          |
 | `max_diff_lines`        | No       | `0`                           | Maximum lines per generated diff section (`0` means unlimited)                                                          |
+| `auto_merge`            | No       | `false`                       | Automatically merge the pull request after creation or update                                                           |
+| `auto_merge_method`     | No       | `squash`                      | Merge method when `auto_merge` is enabled: `merge`, `squash`, or `rebase`                                              |
+| `auto_merge_require_approval` | No  | `true`                        | Require at least one approval before auto-merging                                                                       |
+| `auto_merge_wait_checks` | No      | `true`                        | Wait for all required status checks to pass before auto-merging                                                         |
 
 
 ### 🔐 Required Workflow Permissions
@@ -121,6 +130,7 @@ permissions:
 ```
 
 - `contents: read` is required to read repository state.
+- `contents: write` is required when `auto_merge` is enabled (for merge operations).
 - `pull-requests: write` is required to create and update pull requests.
 - `issues: write` is required when managed overflow comments are created, updated, or deleted (including cleanup on later runs).
 - `issues: write` is also required when `create_missing_labels=true`, because label creation uses the repository labels API.
